@@ -1,0 +1,150 @@
+{
+  "repo_notes": [
+    {
+      "content": "This wiki exists to support a Rails → Go migration of Spree. Every feature/component page MUST be written as a migration spec, not a tour. Each page must include these sections: (1) Inputs — API request params, form fields, events, external data sources the feature consumes; (2) Outputs — response fields, DB writes, emitted events/webhooks, side effects on other models; (3) Business Logic — the rules, validations, and state machines, with file paths in the repo as references; (4) Dependencies — which other features/models/services it reads from or writes to (e.g. Order→Inventory allocation, Promotion→Order adjustments, Payment→Shipment state coupling); (5) Edge Cases — an explicit checklist: validations, boundary values, race conditions, partial failures, multi-currency/tax rounding, overselling/backorders, concurrent edits, idempotency, soft-deletes; (6) Migration Verification — how to prove a reimplementation is correct: observable behaviors to check, invariants that must hold, and concrete test cases (each named so it can be ported one-to-one).",
+      "author": "spree-go migration"
+    },
+    {
+      "content": "Source of truth: spree/core (models, services, state machines, calculators) and spree/api (Store & Admin REST surfaces). spree/admin, spree/dashboard, spree/emails and spree/providers/* are secondary. The migration target pin is the spree-go repo's submodule at v5.6.1 — this wiki tracks the fork's main, so call out behavior that differs from 5.6-era semantics where known. Note that TWO store APIs coexist: the legacy Storefront API at /api/v2/storefront and the newer Store API v3 at /api/v3/store — document both and call out differences. Where behavior differs between code and docs/, trust the code (models, services, specs).",
+      "author": "spree-go migration"
+    },
+    {
+      "content": "Use the in-repo specs (spree/*/spec/) as behavioral ground truth when enumerating edge cases and test cases — they encode the contract. The demo dataset lives in spree/core/db/sample_data/ (CSV); reference it when describing seed/demo expectations.",
+      "author": "spree-go migration"
+    }
+  ],
+  "pages": [
+    {
+      "title": "Migration Overview",
+      "purpose": "Repo map for the migration: component boundaries (core/api/admin/dashboard/emails/packages), which parts are canonical vs optional, overall dependency rules, and how the wiki is organized for porting work."
+    },
+    {
+      "title": "Component Map & Dependencies",
+      "purpose": "Dependency graph across the whole codebase: which models/services/features read or write each other's state (order→inventory, promotion→order adjustments, payment→shipment, tax→order totals, stock→availability). Include the cross-component write edges that a port must preserve.",
+      "parent": "Migration Overview"
+    },
+    {
+      "title": "Data Model Overview",
+      "purpose": "The core entity graph: Product/Variant/Price, Order/LineItem/Adjustment, Payment/Shipment, StockItem/StockMovement, User/Address, Store/Channel/Market. Key columns, invariants, and which tables are the source of truth for derived values (totals, counts, states).",
+      "parent": "Migration Overview"
+    },
+    {
+      "title": "Catalog",
+      "purpose": "Top-level of the catalog feature set."
+    },
+    {
+      "title": "Products & Variants",
+      "purpose": "Product/Variant/Price models incl. master variant, deleted_at (paranoia), slugs/friendly_id, availability/discontinue windows, pricing (price, compare_at, cost), and the product serialization contract for both store APIs.",
+      "parent": "Catalog"
+    },
+    {
+      "title": "Option Types, Values & Variant Generation",
+      "purpose": "How option types/values combine into variants, SKU conventions, variant ordering, and what happens to line items when variants change.",
+      "parent": "Catalog"
+    },
+    {
+      "title": "Taxons, Categories & Collections",
+      "purpose": "Taxonomy trees (awesome_nested_set), category/collection split shipped in 5.5, nested-set traversal semantics, and storefront navigation/filter implications.",
+      "parent": "Catalog"
+    },
+    {
+      "title": "Inventory & Stock",
+      "purpose": "StockLocations, StockItems, StockMovements, StockReservations (5.x), backorderable vs track_inventory, overselling semantics, allocation on order placement, and the inventory edge cases matrix."
+    },
+    {
+      "title": "Cart, Checkout & Orders",
+      "purpose": "Top-level for the order pipeline."
+    },
+    {
+      "title": "Cart & Order Lifecycle",
+      "purpose": "Order/cart states and transitions (cart→address→delivery→payment→confirm→complete/canceled/resumed), order tokens for guest carts, line item CRUD semantics, and merge cart rules.",
+      "parent": "Cart, Checkout & Orders"
+    },
+    {
+      "title": "Totals Pipeline (OrderUpdater)",
+      "purpose": "How item_total/total/adjustment_total/promo_total/shipment_total/tax_total are recomputed, ordering of recalculation, rounding rules, and the invariants every write must maintain.",
+      "parent": "Cart, Checkout & Orders"
+    },
+    {
+      "title": "Checkout Flow",
+      "purpose": "Checkout steps as enforced by the API (address→delivery→payment→confirm), state machine guards, payment capture semantics, and failure/abort paths.",
+      "parent": "Cart, Checkout & Orders"
+    },
+    {
+      "title": "Pricing & Promotions",
+      "purpose": "Prices per currency, PriceHistory/Omnibus (lowest-in-30-days), promotion rules/actions/calculators, coupon codes, stacking and exclusion semantics, and promotion-related edge cases."
+    },
+    {
+      "title": "Payments",
+      "purpose": "Payment methods (incl. external checkouts), the payment state machine (checkout→processing→pending→completed/failed/void), refunds, store credit, and capture/authorize modes."
+    },
+    {
+      "title": "Fulfillment",
+      "purpose": "Top-level for shipping/returns."
+    },
+    {
+      "title": "Shipments & Shipping Methods",
+      "purpose": "Shipment creation/splitting from orders, shipping methods/categories/calculators, shipping rates at checkout, shipment states (pending→ready→shipped/canceled), and inventory unit coupling.",
+      "parent": "Fulfillment"
+    },
+    {
+      "title": "Returns, Exchanges & Cancellations",
+      "purpose": "ReturnAuthorization→Reimbursement chain, exchanges, order cancellation/approval (5.5 models), refund coupling to payments, and the allowed state transitions per role.",
+      "parent": "Fulfillment"
+    },
+    {
+      "title": "Taxation",
+      "purpose": "Zones, TaxRates, calculators, VAT vs US sales tax, included-in-price vs additional, item vs order-level rounding, and tax edge cases (compound, exemptions, address-triggered recalculation)."
+    },
+    {
+      "title": "Customers & Authentication",
+      "purpose": "User/AdminUser devise setup, guest checkout identity, order token semantics for API carts, API keys and scopes (5.5 admin keys), and auth-related edge cases."
+    },
+    {
+      "title": "Stores, Channels & Markets",
+      "purpose": "Store defaults (currency/locale/timezone), Channel + OrderRoutingRule routing (5.5), Markets, single-store ownership migration (products/promotions/payment methods), and multi-store gotchas."
+    },
+    {
+      "title": "Store APIs",
+      "purpose": "Top-level for public APIs."
+    },
+    {
+      "title": "Storefront API v2 (/api/v2/storefront)",
+      "purpose": "The JSON:API v2 surface: resources, envelopes, includes, sparse fieldsets, filters, pagination, error objects, order-token semantics, and endpoint-by-endpoint behavior worth porting tests for.",
+      "parent": "Store APIs"
+    },
+    {
+      "title": "Store API v3 (/api/v3/store)",
+      "purpose": "The newer v3 store surface: how it differs from v2 (resources, naming standardization, cart model), and which v2 behaviors it replaces.",
+      "parent": "Store APIs"
+    },
+    {
+      "title": "Admin API & Access Control",
+      "purpose": "Admin REST surface, API keys + granular scopes (read_*/write_*), admin SPA auth (refresh cookie + access token), and permission gating."
+    },
+    {
+      "title": "Admin UI & React Dashboard",
+      "purpose": "spree_admin Rails engine surface and the @spree/dashboard React SPA: what each admin screen manages, and which business flows are exercised from the UI (useful for screenshot-driven verification)."
+    },
+    {
+      "title": "Metafields, Custom Fields & Translations",
+      "purpose": "MetafieldDefinition schema enforcement, store-scoped vs global definitions, Mobility translation tables (products, taxons), and i18n behavior in APIs."
+    },
+    {
+      "title": "Search & Filtering",
+      "purpose": "SearchProvider interface (Database vs Meilisearch), faceting (disjunctive option facets), sort orders, and filter param semantics on product listing."
+    },
+    {
+      "title": "Webhooks & Events",
+      "purpose": "Webhook endpoints, event emission points (order/payment/shipment lifecycle), delivery guarantees/retries, and what a reimplementation must emit to stay compatible."
+    },
+    {
+      "title": "Emails & Notifications",
+      "purpose": "spree_emails transactional mail coverage, templates, and when each mail fires."
+    },
+    {
+      "title": "Migration Verification Guide",
+      "purpose": "The umbrella page for 'how to verify the migration is successful': parity strategy (API contract diffing, golden responses from the seeded demo dataset, state-machine probes, totals assertions), the per-feature edge-case checklist index (links into each page's Edge Cases section), acceptance criteria per component, and a staged rollout checklist (catalog read → cart write → checkout → payments → fulfillment)."
+    }
+  ]
+}
